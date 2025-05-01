@@ -11,8 +11,9 @@ import threading
 import RPi.GPIO as GPIO
 
 button_locked = False
+LED_BUTTON_OUTPUT_PIN = 12  # GPIO pin configured as output
 BUTTON_PIN = 17
-OUTPUT_PIN = 12  # GPIO pin configured as output
+LED_FLASH_OUTPUT_PIN = 27  # GPIO pin configured as output
 PRINTER_DEVICE = "/dev/usb/lp0"
 
 def say_cheeze(image_name):
@@ -27,7 +28,7 @@ def say_cheeze(image_name):
 
 def convert_image(input_path, width=384, num_colors=254):
     img = Image.open(input_path)
-    img = img.rotate(-90, expand=True)
+    img = img.rotate(90, expand=True)
     img = img.resize((width, int(width * img.height / img.width)))
     img = img.convert("L")
     enhancer = ImageEnhance.Contrast(img)
@@ -100,47 +101,58 @@ def print_image_with_darkness(printer_dev, img, darkness=0x1E):
 def blink_led_for_duration(duration, blink_interval):
     start_time = time.time()
     while time.time() - start_time < duration:
-        GPIO.output(OUTPUT_PIN, GPIO.HIGH)
+        GPIO.output(LED_BUTTON_OUTPUT_PIN, GPIO.HIGH)
         time.sleep(blink_interval)
-        GPIO.output(OUTPUT_PIN, GPIO.LOW)
+        GPIO.output(LED_BUTTON_OUTPUT_PIN, GPIO.LOW)
         time.sleep(blink_interval)
 
 def blink_led_sequence():
-    sequence = [(3, 0.5), (3, 0.25), (3, 0.1)]
+    sequence = [(2, 0.5), (2, 0.25), (2, 0.1)]
     for duration, interval in sequence:
         blink_led_for_duration(duration, interval)
-    GPIO.output(OUTPUT_PIN, GPIO.HIGH)
+    GPIO.output(LED_BUTTON_OUTPUT_PIN, GPIO.HIGH)
     time.sleep(1)
 
 def picture(channel):
+
     global button_locked
     if button_locked:
         return
+    print("Button pressed!")
     button_locked = True
     blink_led_sequence()
     current_date = datetime.datetime.now().strftime("%Y_%m_%d")
     image_name = f"{current_date}_{uuid.uuid4()}.png"
+    GPIO.output(LED_FLASH_OUTPUT_PIN, GPIO.LOW)
+    print("Image caputirng, printing...")
+    time.sleep(1)
     say_cheeze(image_name)
+    GPIO.output(LED_FLASH_OUTPUT_PIN, GPIO.HIGH)
     img = convert_image(image_name)
-    GPIO.output(OUTPUT_PIN, GPIO.LOW)
+    print("Image converted, printing...")
+    GPIO.output(LED_BUTTON_OUTPUT_PIN, GPIO.LOW)
     print_image_with_darkness(PRINTER_DEVICE, img, darkness=0x2A)
-    threading.Timer(3, unlock_button).start()
+    threading.Timer(2, unlock_button).start()
 
 def unlock_button():
     global button_locked
     button_locked = False
-    GPIO.output(OUTPUT_PIN, GPIO.HIGH)
+    GPIO.output(LED_BUTTON_OUTPUT_PIN, GPIO.HIGH)
     print("Button unlocked.")
 
 if __name__ == "__main__":
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup(OUTPUT_PIN, GPIO.OUT)
-    GPIO.output(OUTPUT_PIN, GPIO.HIGH)
+    GPIO.setup(LED_BUTTON_OUTPUT_PIN, GPIO.OUT)
+    GPIO.output(LED_BUTTON_OUTPUT_PIN, GPIO.HIGH)
+    GPIO.setup(LED_FLASH_OUTPUT_PIN, GPIO.OUT)
+    GPIO.output(LED_FLASH_OUTPUT_PIN, GPIO.HIGH)
+
+
     GPIO.add_event_detect(BUTTON_PIN, GPIO.FALLING, callback=picture, bouncetime=1500)
     print("Waiting for a button press... (Press Ctrl+C to exit)")
-    picture(2)
     try:
+        picture(2)
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
