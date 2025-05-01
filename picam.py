@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Camera capture and ESC/POS printing utility with LED feedback and button trigger.
+Camera capture and ESC/POS printing utility with LED feedback, button trigger, and flash.
 Works for QR204 printer
 """
 import time
@@ -26,28 +26,38 @@ def load_config(env_path: Path):
     config = {
         'BUTTON_PIN': int(os.getenv('BUTTON_PIN', 17)),
         'LED_PIN': int(os.getenv('LED_PIN', 12)),
+        'LED_FLASH_PIN': int(os.getenv('LED_FLASH_PIN', 27)),  # Added for flash LED
         'PRINTER_DEVICE': os.getenv('PRINTER_DEVICE', '/dev/usb/lp0'),
         'IMAGE_WIDTH': int(os.getenv('IMAGE_WIDTH', 384)),
         'NUM_COLORS': int(os.getenv('NUM_COLORS', 254)),
-        'DARKNESS_LEVEL': int(os.getenv('DARKNESS_LEVEL', 0x2A,)),
+        'DARKNESS_LEVEL': int(os.getenv('DARKNESS_LEVEL', 0x2A)),
     }
     return config
 
 
 class Camera:
     """
-    Handles camera operations: capture and save images.
+    Handles camera operations: capture and save images with optional flash.
     """
-    def __init__(self, device_index: int = 0):
+    def __init__(self, device_index: int = 0, flash_pin: int = None):
         self.device_index = device_index
+        self.flash_pin = flash_pin
+        if self.flash_pin is not None:
+            GPIO.setup(self.flash_pin, GPIO.OUT)
+            GPIO.output(self.flash_pin, GPIO.HIGH)  # HIGH is off (assuming active low flash)
 
     def capture(self, output_path: Path) -> None:
         """
-        Capture an image from the camera and save to output_path.
+        Capture an image from the camera with flash (if configured) and save to output_path.
         """
+        if self.flash_pin is not None:
+            GPIO.output(self.flash_pin, GPIO.LOW)  # Turn on flash
+            time.sleep(1)  # Delay to match second code's behavior
         cap = cv2.VideoCapture(self.device_index)
         ret, frame = cap.read()
         cap.release()
+        if self.flash_pin is not None:
+            GPIO.output(self.flash_pin, GPIO.HIGH)  # Turn off flash
         if not ret:
             raise RuntimeError("Failed to capture image from camera")
         cv2.imwrite(str(output_path), frame)
@@ -129,7 +139,7 @@ class LEDIndicator:
         """
         Execute predefined blink sequence.
         """
-        for dur, intv in [(3, 0.5), (3, 0.25), (3, 0.1)]:
+        for dur, intv in [(1, 0.5), (1, 0.25), (1, 0.1)]:
             self.blink(dur, intv)
         GPIO.output(self.pin, GPIO.HIGH)
         time.sleep(1)
@@ -146,7 +156,7 @@ def main():
     # Initialize components
     led = LEDIndicator(config['LED_PIN'])
     led.setup()
-    camera = Camera()
+    camera = Camera(flash_pin=config['LED_FLASH_PIN'])  # Pass flash pin to Camera
     processor = ImageProcessor(config['IMAGE_WIDTH'], config['NUM_COLORS'])
     printer = Printer(config['PRINTER_DEVICE'], config['DARKNESS_LEVEL'])
 
